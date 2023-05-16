@@ -1,0 +1,101 @@
+name: CI
+
+# Enable Buildkit and let compose use it to speed up image building
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+on: workflow_dispatch
+
+jobs:
+  # With no caching at all the entire ci process takes 4m 30s to complete!
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Copy .env
+        run: cp example.env .env
+
+      - name: Fix permissions for compilemessages
+        run: chmod 777 -R locale/fr
+
+      - name: Fix permissions for media
+        run: mkdir private_media && chmod 777 -R private_media
+
+      - name: Build the Stack
+        run:  docker-compose build
+
+      - name: Create network
+        run: docker network create traefik
+
+      - name: Run DB Migrations
+        run:  docker-compose run --rm django python manage.py migrate
+
+      - name: Load fixures
+        run:  docker-compose run --rm django python manage.py loaddata ingredients steps
+
+      - name: Compile translations
+        run:  docker-compose run --rm django python manage.py compilemessages
+
+      - name: Run Django Tests
+        run:  docker-compose run django pytest
+
+      - name: Install and Run Pre-commit
+        uses: pre-commit/action@v3.0.0
+
+      - name: Tear down the Stack
+        run:  docker-compose down
+
+      # - name: Deploy Via SSH (Dev)
+      #   uses: appleboy/ssh-action@master
+      #   if: ${{ success() && github.ref == 'refs/heads/develop' }}
+      #   with:
+      #     host: ${{ secrets.DEV_HOST }}
+      #     username: ${{ secrets.SSH_DEPLOY_USER }}
+      #     key: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      #     port: ${{ secrets.SSH_PORT }}
+      #     script_stop: true
+      #     script: |
+      #       cd omy-backend
+      #       git pull
+      #       docker-compose build
+      #       ./manage collectstatic --no-input
+      #       sudo systemctl stop docker-api
+      #       sudo systemctl start docker-api
+      #       docker restart nginx
+
+      # - name: Deploy Via SSH (Prod)
+      #   uses: appleboy/ssh-action@master
+      #   if: ${{ success() && github.ref == 'refs/heads/main' }}
+      #   with:
+      #     host: ${{ secrets.PROD_HOST }}
+      #     username: ${{ secrets.SSH_DEPLOY_USER }}
+      #     key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+      #     port: ${{ secrets.SSH_PORT }}
+      #     script_stop: true
+      #     script: |
+      #       cd omy-backend
+      #       git pull
+      #       docker-compose build
+      #       ./manage collectstatic --no-input
+      #       docker-compose -f docker-compose.yaml -f docker-compose.live.yaml down
+      #       docker-compose -f docker-compose.yaml -f docker-compose.live.yaml up -d
+      #       docker restart nginx
+
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: omy-backend-api
+        with:
+          environment: production

@@ -1,0 +1,25 @@
+name: Deploy backend
+
+# Enable Buildkit and let compose use it to speed up image building
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+on:
+  workflow_call:
+    inputs:
+      cloud-env:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    environment: ${{ inputs.cloud-env }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3

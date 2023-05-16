@@ -1,0 +1,12 @@
+name: backend-deploy-staging
+
+on:
+  push:
+    branches: 'develop'
+
+jobs:
+  deploy-backend:
+    uses: ./.github/workflows/backend-deploy.yml
+    with:
+      cloud-env: staging
+    secrets: inherit

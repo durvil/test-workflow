@@ -1,0 +1,59 @@
+name: Lint & Test backend
+
+# Enable Buildkit and let compose use it to speed up image building
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+on:
+  pull_request:
+    branches:
+      - "**"
+      - "!main"
+
+jobs:
+  lint_and_test:
+    environment: staging
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Login
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Fix permissions for creds
+        run: chmod 777 "$GOOGLE_APPLICATION_CREDENTIALS"
+
+      - name: Fix permissions for media
+        run: mkdir private_media && chmod 777 -R private_media
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Copy .env
+        run: cp example.env .env
+
+      - name: Build
+        run:  docker-compose build
+
+      - name: Install and Run Pre-commit
+        uses: pre-commit/action@v3.0.0
+
+      - name: Run DB Migrations
+        run:  docker-compose -f docker-compose.test.yaml run --rm --entrypoint=python django manage.py migrate
+
+      - name: Run Django Tests
+        run:  docker compose -f docker-compose.test.yaml run --rm django
+
+      - name: Tear down the Stack
+        run:  docker-compose -f docker-compose.test.yaml down -v
